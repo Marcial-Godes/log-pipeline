@@ -8,104 +8,71 @@ import {
   ResponsiveContainer,
   PieChart,
   Pie,
+  Cell,
 } from "recharts";
 
 const API_URL = "https://log-pipeline.onrender.com";
-const WS_URL = "wss://log-pipeline.onrender.com/ws";
 
 function App() {
   const [summary, setSummary] = useState(null);
   const [logs, setLogs] = useState([]);
-  const [alerts, setAlerts] = useState([]);
-  const [lastUpdate, setLastUpdate] = useState(null);
+  const [topEndpoints, setTopEndpoints] = useState([]);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [methodFilter, setMethodFilter] = useState("");
 
-  // 🔥 FALLBACK FETCH (por si WS falla)
+  const [lastUpdate, setLastUpdate] = useState(null);
+
   const fetchData = async () => {
     try {
-      const res = await fetch(`${API_URL}/logs/stats/summary`);
-      const data = await res.json();
-      setSummary(data);
+      const [summaryRes, logsRes, endpointsRes] = await Promise.all([
+        fetch(`${API_URL}/logs/stats/summary`),
+        fetch(`${API_URL}/logs/recent`),
+        fetch(`${API_URL}/logs/stats/top-endpoints`),
+      ]);
+
+      const summaryData = await summaryRes.json();
+      const logsData = await logsRes.json();
+      const endpointsData = await endpointsRes.json();
+
+      setSummary(summaryData || null);
+      setLogs(Array.isArray(logsData) ? logsData : []);
+      setTopEndpoints(Array.isArray(endpointsData) ? endpointsData : []);
+
       setLastUpdate(new Date());
-    } catch (e) {
-      console.error("Fallback fetch error");
+    } catch (error) {
+      console.error("🔥 ERROR FETCH:", error);
     }
   };
 
   useEffect(() => {
-    let ws;
-
-    const connectWS = () => {
-      ws = new WebSocket(WS_URL);
-
-      ws.onopen = () => {
-        console.log("WS conectado");
-      };
-
-      ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-
-        if (data.summary) setSummary(data.summary);
-        if (data.logs) setLogs(data.logs);
-
-        setLastUpdate(new Date());
-
-        // 🔥 ALERTAS EN TIEMPO REAL
-        const errorRate =
-          (data.summary.errors / data.summary.total) * 100;
-
-        let alert = null;
-
-        if (errorRate > 50) {
-          alert = {
-            id: Date.now(),
-            type: "critical",
-            message: `CRITICAL ${errorRate.toFixed(1)}%`,
-            time: new Date(),
-          };
-        } else if (errorRate > 25) {
-          alert = {
-            id: Date.now(),
-            type: "warning",
-            message: `WARNING ${errorRate.toFixed(1)}%`,
-            time: new Date(),
-          };
-        }
-
-        if (alert) {
-          setAlerts((prev) => [alert, ...prev].slice(0, 5));
-        }
-      };
-
-      ws.onerror = () => {
-        console.log("WS error → fallback HTTP");
-        fetchData();
-      };
-
-      ws.onclose = () => {
-        console.log("WS reconectando...");
-        setTimeout(connectWS, 3000);
-      };
-    };
-
-    connectWS();
-
-    return () => ws && ws.close();
+    fetchData();
+    const interval = setInterval(fetchData, 5000);
+    return () => clearInterval(interval);
   }, []);
 
-  const pieData = summary
-    ? [
-        { name: "Correctos", value: summary.success },
-        { name: "Errores", value: summary.errors },
-      ]
-    : [];
+  // 🔥 ANTICRASH
+  const safeSummary = summary || {
+    total: 0,
+    success: 0,
+    errors: 0,
+  };
+
+  const pieData = [
+    { name: "Correctos", value: safeSummary.success },
+    { name: "Errores", value: safeSummary.errors },
+  ];
+
+  const activityData = logs.slice(0, 20).map((log, i) => ({
+    name: i,
+    success: log.status_code < 400 ? 1 : 0,
+    error: log.status_code >= 400 ? 1 : 0,
+  }));
 
   const filteredLogs = logs.filter((log) => {
     return (
-      log.endpoint.toLowerCase().includes(search.toLowerCase()) &&
+      (log.endpoint || "").toLowerCase().includes(search.toLowerCase()) &&
       (statusFilter ? log.status_code.toString() === statusFilter : true) &&
       (methodFilter ? log.method === methodFilter : true)
     );
@@ -115,91 +82,140 @@ function App() {
     <div className="p-6 max-w-7xl mx-auto">
 
       {/* HEADER */}
-      <h1 className="text-4xl text-center mb-2">📊 Log Dashboard</h1>
+      <h1 className="text-4xl font-semibold text-center mb-1">
+        📊 Log Dashboard
+      </h1>
 
       {/* LIVE */}
-      <div className="text-center text-sm text-green-600 mb-4">
-        ● LIVE · {lastUpdate?.toLocaleTimeString() || "--:--"}
+      <div className="flex justify-center items-center gap-2 text-sm text-gray-500 mb-6">
+        <span className="relative flex h-3 w-3">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+          <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+        </span>
+
+        <span className="font-medium text-green-600">LIVE</span>
+
+        <span>· última actualización:</span>
+
+        <span className="font-mono">
+          {lastUpdate ? lastUpdate.toLocaleTimeString() : "--:--:--"}
+        </span>
       </div>
 
-      {/* ALERTAS */}
-      {alerts.length > 0 && (
-        <div className="mb-4 space-y-2">
-          {alerts.map((a) => (
-            <div
-              key={a.id}
-              className={`p-2 rounded text-sm ${
-                a.type === "critical"
-                  ? "bg-red-100 text-red-700"
-                  : "bg-yellow-100 text-yellow-700"
-              }`}
-            >
-              {a.message}
-            </div>
-          ))}
-        </div>
-      )}
-
       {/* SUMMARY */}
-      {summary && (
-        <div className="grid grid-cols-4 gap-4 mb-6">
-          <div className="bg-white p-4 shadow rounded text-center">
-            <p>Total</p>
-            <p className="font-bold">{summary.total}</p>
-          </div>
-          <div className="bg-white p-4 shadow rounded text-center">
-            <p>Errores</p>
-            <p className="text-red-500 font-bold">
-              {summary.errors}
-            </p>
-          </div>
-          <div className="bg-white p-4 shadow rounded text-center">
-            <p>Correctos</p>
-            <p className="text-green-600 font-bold">
-              {summary.success}
-            </p>
-          </div>
-          <div className="bg-white p-4 shadow rounded text-center">
-            <p>% Error</p>
-            <p className="text-orange-500 font-bold">
-              {(
-                (summary.errors / summary.total) *
-                100
-              ).toFixed(1)}
-              %
-            </p>
-          </div>
+      <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="bg-white shadow p-4 rounded text-center">
+          <p>Total</p>
+          <p className="text-xl font-bold">{safeSummary.total}</p>
         </div>
-      )}
 
-      {/* DONUT */}
-      <div className="bg-white shadow rounded p-4 flex justify-center mb-6">
-        <div className="relative">
-          <PieChart width={220} height={220}>
-            <Pie
-              data={pieData}
-              innerRadius={70}
-              outerRadius={100}
-              dataKey="value"
-            />
-          </PieChart>
+        <div className="bg-white shadow p-4 rounded text-center">
+          <p>Errores</p>
+          <p className="text-xl font-bold text-red-500">
+            {safeSummary.errors}
+          </p>
+        </div>
 
-          {summary && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span>{summary.total}</span>
+        <div className="bg-white shadow p-4 rounded text-center">
+          <p>Correctos</p>
+          <p className="text-xl font-bold text-green-600">
+            {safeSummary.success}
+          </p>
+        </div>
+
+        <div className="bg-white shadow p-4 rounded text-center">
+          <p>% Error</p>
+          <p className="text-xl font-bold text-orange-500">
+            {safeSummary.total > 0
+              ? ((safeSummary.errors / safeSummary.total) * 100).toFixed(1)
+              : 0}
+            %
+          </p>
+        </div>
+      </div>
+
+      {/* GRÁFICOS */}
+      <div className="grid grid-cols-4 gap-6 mb-6">
+
+        {/* LINE */}
+        <div className="col-span-3 bg-white shadow rounded p-4">
+          <h2 className="font-semibold mb-2">📈 Actividad</h2>
+
+          <ResponsiveContainer width="100%" height={250}>
+            <LineChart data={activityData}>
+              <XAxis dataKey="name" />
+              <YAxis />
+              <Tooltip />
+              <Line type="monotone" dataKey="success" stroke="#16a34a" />
+              <Line type="monotone" dataKey="error" stroke="#dc2626" />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* DONUT */}
+        <div className="col-span-1 bg-white shadow rounded p-4 flex items-center justify-center">
+          <div className="relative">
+            <PieChart width={220} height={220}>
+              <Pie
+                data={pieData}
+                innerRadius={70}
+                outerRadius={100}
+                dataKey="value"
+              >
+                <Cell fill="#16a34a" />
+                <Cell fill="#dc2626" />
+              </Pie>
+            </PieChart>
+
+            {/* CENTRO */}
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-sm">
+              <span className="text-gray-400">Logs</span>
+              <span className="text-xl font-bold">
+                {safeSummary.total}
+              </span>
+              <div className="flex gap-2 mt-1">
+                <span className="text-green-600 text-xs">
+                  {safeSummary.success}
+                </span>
+                <span className="text-red-500 text-xs">
+                  {safeSummary.errors}
+                </span>
+              </div>
             </div>
-          )}
+          </div>
         </div>
       </div>
 
       {/* FILTROS */}
-      <div className="flex gap-2 mb-4">
+      <div className="flex gap-3 mb-4">
         <input
+          type="text"
           placeholder="Buscar..."
-          className="border p-2"
+          className="border p-2 rounded"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
+
+        <select
+          className="border p-2 rounded"
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+        >
+          <option value="">Status</option>
+          <option value="200">200</option>
+          <option value="400">400</option>
+          <option value="500">500</option>
+        </select>
+
+        <select
+          className="border p-2 rounded"
+          value={methodFilter}
+          onChange={(e) => setMethodFilter(e.target.value)}
+        >
+          <option value="">Método</option>
+          <option value="GET">GET</option>
+          <option value="POST">POST</option>
+        </select>
 
         <button
           onClick={() => {
@@ -207,20 +223,40 @@ function App() {
             setStatusFilter("");
             setMethodFilter("");
           }}
-          className="bg-black text-white px-3"
+          className="bg-black text-white px-4 rounded"
         >
           Reset
         </button>
       </div>
 
       {/* TABLA */}
-      <div className="bg-white shadow p-4 rounded">
+      <div className="bg-white shadow rounded p-4 overflow-auto max-h-[400px]">
+        <h2 className="font-semibold mb-2">
+          Logs ({filteredLogs.length})
+        </h2>
+
         <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left border-b">
+              <th>Endpoint</th>
+              <th>Status</th>
+              <th>Método</th>
+            </tr>
+          </thead>
+
           <tbody>
             {filteredLogs.map((log, i) => (
-              <tr key={i}>
+              <tr key={i} className="border-b">
                 <td>{log.endpoint}</td>
-                <td>{log.status_code}</td>
+                <td
+                  className={
+                    log.status_code >= 400
+                      ? "text-red-500"
+                      : "text-green-600"
+                  }
+                >
+                  {log.status_code}
+                </td>
                 <td>{log.method}</td>
               </tr>
             ))}
