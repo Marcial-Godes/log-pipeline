@@ -1,100 +1,104 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from datetime import datetime
-from typing import Optional
+from sqlalchemy import func
 
-from app.core.database import SessionLocal
-from app.metrics.metrics import metrics
-from app.services.analytics import (
-    get_error_count,
-    logs_by_endpoint,
-    status_codes,
-    top_endpoints,
-    latency_by_endpoint,
-    latency_percentiles,
-)
+from app.database import get_db
+from app.models.log import Log
 
-router = APIRouter(prefix="/analytics")
+# 🔥 IMPORTANTE
+from app.main import manager
+
+router = APIRouter(prefix="/logs/stats", tags=["analytics"])
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+# =========================
+# SUMMARY
+# =========================
+@router.get("/summary")
+def get_summary(db: Session = Depends(get_db)):
+    total = db.query(func.count(Log.id)).scalar() or 0
+
+    success = (
+        db.query(func.count(Log.id))
+        .filter(Log.status_code < 400)
+        .scalar()
+        or 0
+    )
+
+    errors = (
+        db.query(func.count(Log.id))
+        .filter(Log.status_code >= 400)
+        .scalar()
+        or 0
+    )
+
+    return {
+        "total": int(total),
+        "success": int(success),
+        "errors": int(errors),
+    }
 
 
-@router.get("/errors")
-def error_count(
-    start_date: Optional[datetime] = Query(None),
-    end_date: Optional[datetime] = Query(None),
-    db: Session = Depends(get_db),
-):
-    return get_error_count(db, start_date, end_date)
-
-
-@router.get("/by-endpoint")
-def by_endpoint(
-    start_date: Optional[datetime] = Query(None),
-    end_date: Optional[datetime] = Query(None),
-    db: Session = Depends(get_db),
-):
-    return logs_by_endpoint(db, start_date, end_date)
-
-
-@router.get("/status-codes")
-def codes(db: Session = Depends(get_db)):
-    return status_codes(db)
-
-
+# =========================
+# TOP ENDPOINTS
+# =========================
 @router.get("/top-endpoints")
-def top(
-    limit: int = Query(5),
-    start_date: Optional[datetime] = Query(None),
-    end_date: Optional[datetime] = Query(None),
-    errors_only: bool = Query(False),
-    db: Session = Depends(get_db),
-):
-    return top_endpoints(
-        db,
-        limit=limit,
-        start_date=start_date,
-        end_date=end_date,
-        errors_only=errors_only,
+def top_endpoints(db: Session = Depends(get_db)):
+    results = (
+        db.query(Log.endpoint, func.count(Log.id).label("count"))
+        .group_by(Log.endpoint)
+        .order_by(func.count(Log.id).desc())
+        .limit(5)
+        .all()
     )
 
+    return [
+        {"endpoint": r.endpoint, "count": int(r.count)}
+        for r in results
+    ]
 
-@router.get("/latency")
-def latency(
-    limit: int = Query(5),
-    start_date: Optional[datetime] = Query(None),
-    end_date: Optional[datetime] = Query(None),
-    db: Session = Depends(get_db),
-):
-    return latency_by_endpoint(
-        db,
-        limit=limit,
-        start_date=start_date,
-        end_date=end_date,
+
+# =========================
+# STATUS DISTRIBUTION
+# =========================
+@router.get("/status-distribution")
+def status_distribution(db: Session = Depends(get_db)):
+    results = (
+        db.query(Log.status_code, func.count(Log.id))
+        .group_by(Log.status_code)
+        .all()
     )
 
+    return [
+        {"status": r[0], "count": int(r[1])}
+        for r in results
+    ]
 
-@router.get("/latency/percentiles")
-def latency_p(
-    limit: int = Query(5),
-    start_date: Optional[datetime] = Query(None),
-    end_date: Optional[datetime] = Query(None),
-    db: Session = Depends(get_db),
-):
-    return latency_percentiles(
-        db,
-        limit=limit,
-        start_date=start_date,
-        end_date=end_date,
+
+# =========================
+# 🔥 REALTIME ALERT CHECK
+# =========================
+last_error_count = 0
+
+
+@router.get("/realtime-check")
+async def realtime_check(db: Session = Depends(get_db)):
+    global last_error_count
+
+    errors = (
+        db.query(func.count(Log.id))
+        .filter(Log.status_code >= 400)
+        .scalar()
+        or 0
     )
 
+    # 🔥 SOLO SI AUMENTAN LOS ERRORES
+    if errors > last_error_count:
+        await manager.broadcast({
+            "type": "error",
+            "message": f"Errores totales: {errors}",
+        })
 
-@router.get("/metrics")
-def system_metrics():
-    return metrics.get_metrics()
+    last_error_count = errors
+
+    return {"errors": errors}

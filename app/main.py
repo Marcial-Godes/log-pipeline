@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import logs, analytics
 from app.database import Base, engine, SessionLocal
-
 from app.models.log import Log
 
 import json
@@ -11,20 +10,20 @@ import json
 app = FastAPI()
 
 # =========================
-# WEBSOCKET MANAGER 🔥
+# WS MANAGER
 # =========================
 class ConnectionManager:
     def __init__(self):
-        self.active_connections: list[WebSocket] = []
+        self.active_connections = []
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
-        print(f"🟢 WS connected ({len(self.active_connections)})")
+        print("🟢 WS connected")
 
     def disconnect(self, websocket: WebSocket):
         self.active_connections.remove(websocket)
-        print(f"🔴 WS disconnected ({len(self.active_connections)})")
+        print("🔴 WS disconnected")
 
     async def broadcast(self, data: dict):
         for connection in self.active_connections:
@@ -36,9 +35,8 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-
 # =========================
-# WEBSOCKET ENDPOINT
+# WEBSOCKET ENDPOINT 🔥
 # =========================
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -46,18 +44,15 @@ async def websocket_endpoint(websocket: WebSocket):
 
     try:
         while True:
-            # mantenemos la conexión viva
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
-
 # =========================
-# DB INIT + SEED
+# DB INIT
 # =========================
 def init_db():
     Base.metadata.create_all(bind=engine)
-
 
 @app.on_event("startup")
 def startup_event():
@@ -66,14 +61,9 @@ def startup_event():
     db = SessionLocal()
 
     if db.query(Log).count() == 0:
-        print("🌱 Seeding database...")
-
         sample_logs = [
             Log(endpoint="/login", method="POST", status_code=200),
-            Log(endpoint="/login", method="POST", status_code=401),
             Log(endpoint="/orders", method="GET", status_code=200),
-            Log(endpoint="/orders", method="POST", status_code=500),
-            Log(endpoint="/users", method="GET", status_code=200),
         ]
 
         for log in sample_logs:
@@ -83,14 +73,12 @@ def startup_event():
 
     db.close()
 
-
 # =========================
-# HEALTH CHECK
+# HEALTH
 # =========================
 @app.get("/health")
 def health():
     return {"status": "ok"}
-
 
 # =========================
 # CORS
@@ -102,7 +90,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 # =========================
 # ROUTES
