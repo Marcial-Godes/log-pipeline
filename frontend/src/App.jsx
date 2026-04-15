@@ -18,12 +18,8 @@ function App() {
   const [logs, setLogs] = useState([]);
   const [alerts, setAlerts] = useState([]);
 
-  const [lastErrors, setLastErrors] = useState(null);
+  const [lastLogCount, setLastLogCount] = useState(0);
   const [lastUpdate, setLastUpdate] = useState(null);
-
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [methodFilter, setMethodFilter] = useState("");
 
   const MAX_ALERTS = 3;
 
@@ -35,7 +31,6 @@ function App() {
       return updated;
     });
 
-    // 🔥 auto eliminar después de 4s
     setTimeout(() => {
       setAlerts((prev) => prev.filter((a) => a.id !== id));
     }, 4000);
@@ -52,16 +47,24 @@ function App() {
       const logsData = await logsRes.json();
 
       setSummary(summaryData);
-      setLogs(Array.isArray(logsData) ? logsData : []);
+      setLogs(logsData);
 
-      // 🔥 ALERTAS INTELIGENTES
-      if (lastErrors !== null && summaryData.errors > lastErrors) {
-        const diff = summaryData.errors - lastErrors;
-        addAlert(`🚨 +${diff} errores detectados`);
+      // 🔥 DETECCIÓN REAL (por logs nuevos)
+      if (logsData.length > lastLogCount) {
+        const newLogs = logsData.slice(0, logsData.length - lastLogCount);
+
+        const newErrors = newLogs.filter(
+          (log) => log.status_code >= 400
+        );
+
+        if (newErrors.length > 0) {
+          addAlert(`🚨 ${newErrors.length} errores nuevos`);
+        }
       }
 
-      setLastErrors(summaryData.errors);
+      setLastLogCount(logsData.length);
       setLastUpdate(new Date());
+
     } catch (error) {
       console.error("ERROR:", error);
     }
@@ -71,7 +74,7 @@ function App() {
     fetchData();
     const interval = setInterval(fetchData, 2000);
     return () => clearInterval(interval);
-  }, [lastErrors]);
+  }, [lastLogCount]);
 
   if (!summary) return <div className="p-6">Cargando...</div>;
 
@@ -86,23 +89,14 @@ function App() {
     error: log.status_code >= 400 ? 1 : 0,
   }));
 
-  const filteredLogs = logs.filter((log) => {
-    return (
-      (log.endpoint || "").toLowerCase().includes(search.toLowerCase()) &&
-      (statusFilter ? log.status_code.toString() === statusFilter : true) &&
-      (methodFilter ? log.method === methodFilter : true)
-    );
-  });
-
   return (
     <div className="p-6 max-w-7xl mx-auto">
 
-      {/* HEADER */}
       <h1 className="text-4xl text-center mb-2">
         📊 Log Dashboard
       </h1>
 
-      {/* 🔥 ALERTAS */}
+      {/* ALERTAS */}
       <div className="space-y-2 mb-4">
         {alerts.map((a) => (
           <div
@@ -151,10 +145,7 @@ function App() {
       {/* GRÁFICOS */}
       <div className="grid grid-cols-4 gap-6 mb-6">
 
-        {/* LINE */}
         <div className="col-span-3 bg-white shadow rounded p-4">
-          <h2 className="font-semibold mb-2">📈 Actividad</h2>
-
           <ResponsiveContainer width="100%" height={250}>
             <LineChart data={activityData}>
               <XAxis dataKey="name" />
@@ -166,7 +157,6 @@ function App() {
           </ResponsiveContainer>
         </div>
 
-        {/* DONUT */}
         <div className="bg-white shadow rounded p-4 flex justify-center items-center">
           <PieChart width={200} height={200}>
             <Pie data={pieData} dataKey="value" innerRadius={60}>
@@ -175,84 +165,6 @@ function App() {
             </Pie>
           </PieChart>
         </div>
-      </div>
-
-      {/* FILTROS */}
-      <div className="flex gap-3 mb-4">
-        <input
-          type="text"
-          placeholder="Buscar..."
-          className="border p-2 rounded"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-
-        <select
-          className="border p-2 rounded"
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-        >
-          <option value="">Status</option>
-          <option value="200">200</option>
-          <option value="400">400</option>
-          <option value="500">500</option>
-        </select>
-
-        <select
-          className="border p-2 rounded"
-          value={methodFilter}
-          onChange={(e) => setMethodFilter(e.target.value)}
-        >
-          <option value="">Método</option>
-          <option value="GET">GET</option>
-          <option value="POST">POST</option>
-        </select>
-
-        <button
-          onClick={() => {
-            setSearch("");
-            setStatusFilter("");
-            setMethodFilter("");
-          }}
-          className="bg-black text-white px-4 rounded"
-        >
-          Reset
-        </button>
-      </div>
-
-      {/* TABLA */}
-      <div className="bg-white shadow rounded p-4 overflow-auto max-h-[400px]">
-        <h2 className="font-semibold mb-2">
-          Logs ({filteredLogs.length})
-        </h2>
-
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left border-b">
-              <th>Endpoint</th>
-              <th>Status</th>
-              <th>Método</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {filteredLogs.map((log, i) => (
-              <tr key={i} className="border-b">
-                <td>{log.endpoint}</td>
-                <td
-                  className={
-                    log.status_code >= 400
-                      ? "text-red-500"
-                      : "text-green-600"
-                  }
-                >
-                  {log.status_code}
-                </td>
-                <td>{log.method}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
       </div>
 
     </div>
