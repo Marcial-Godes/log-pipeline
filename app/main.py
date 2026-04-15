@@ -5,13 +5,12 @@ from app.api.routes import logs, analytics
 from app.database import Base, engine, SessionLocal
 from app.models.log import Log
 
-# 🔥 IMPORT CORRECTO (FUERA DE MAIN)
 from app.websocket.manager import manager
 
 app = FastAPI()
 
 # =========================
-# WEBSOCKET ENDPOINT
+# WEBSOCKET
 # =========================
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
