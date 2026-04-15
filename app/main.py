@@ -10,6 +10,13 @@ from app.websocket.manager import manager
 app = FastAPI()
 
 # =========================
+# ROOT (IMPORTANTE PARA RENDER)
+# =========================
+@app.get("/")
+def root():
+    return {"message": "Log Pipeline API running"}
+
+# =========================
 # WEBSOCKET
 # =========================
 @app.websocket("/ws")
@@ -18,7 +25,6 @@ async def websocket_endpoint(websocket: WebSocket):
 
     try:
         while True:
-            # mantener conexión viva
             await asyncio.sleep(10)
     except WebSocketDisconnect:
         manager.disconnect(websocket)
