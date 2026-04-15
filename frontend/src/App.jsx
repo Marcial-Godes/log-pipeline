@@ -25,17 +25,14 @@ function App() {
   const addAlert = (message) => {
     const id = Date.now();
 
-    setAlerts((prev) => {
-      const updated = [{ id, message }, ...prev].slice(0, MAX_ALERTS);
-      return updated;
-    });
+    setAlerts((prev) => [{ id, message }, ...prev].slice(0, MAX_ALERTS));
 
     setTimeout(() => {
       setAlerts((prev) => prev.filter((a) => a.id !== id));
     }, 4000);
   };
 
-  // 🔥 FETCH INICIAL (solo una vez)
+  // 🔥 FETCH INICIAL
   const fetchInitialData = async () => {
     try {
       const [summaryRes, logsRes] = await Promise.all([
@@ -49,15 +46,15 @@ function App() {
       setSummary(summaryData);
       setLogs(logsData);
       setLastUpdate(new Date());
-    } catch (error) {
-      console.error("ERROR:", error);
+    } catch (err) {
+      console.error("ERROR INIT:", err);
     }
   };
 
   useEffect(() => {
     fetchInitialData();
 
-    // 🔥 WEBSOCKET
+    // 🔥 WEBSOCKET REAL
     const ws = new WebSocket(WS_URL);
 
     ws.onopen = () => {
@@ -70,10 +67,8 @@ function App() {
       if (msg.type === "new_log") {
         const log = msg.data;
 
-        // añadir log arriba
         setLogs((prev) => [log, ...prev.slice(0, 49)]);
 
-        // actualizar summary manualmente
         setSummary((prev) => {
           if (!prev) return prev;
 
@@ -86,7 +81,6 @@ function App() {
           };
         });
 
-        // 🔥 alerta si error
         if (log.status_code >= 400) {
           addAlert(`🚨 Error ${log.status_code} en ${log.endpoint}`);
         }
@@ -95,8 +89,12 @@ function App() {
       }
     };
 
+    ws.onerror = (e) => {
+      console.error("WS ERROR", e);
+    };
+
     ws.onclose = () => {
-      console.log("🔴 WS desconectado");
+      console.log("🔴 WS cerrado");
     };
 
     return () => ws.close();
