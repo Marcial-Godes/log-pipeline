@@ -8,40 +8,44 @@ import {
 } from "recharts";
 
 const API_URL = "https://log-pipeline.onrender.com";
-
-const COLORS = ["#22c55e", "#ef4444"]; // verde / rojo
+const COLORS = ["#22c55e", "#ef4444"];
 
 function App() {
   const [summary, setSummary] = useState(null);
   const [logs, setLogs] = useState([]);
   const [topEndpoints, setTopEndpoints] = useState([]);
 
+  const [loading, setLoading] = useState(true);
+  const [lastUpdate, setLastUpdate] = useState(null);
+
   const [methodFilter, setMethodFilter] = useState("ALL");
   const [endpointFilter, setEndpointFilter] = useState("ALL");
 
-  // 🔄 fetch data
-  const fetchData = () => {
-    fetch(`${API_URL}/logs/stats/summary`)
-      .then((res) => res.json())
-      .then(setSummary);
+  const fetchData = async () => {
+    try {
+      const [s, l, t] = await Promise.all([
+        fetch(`${API_URL}/logs/stats/summary`).then((r) => r.json()),
+        fetch(`${API_URL}/logs/recent`).then((r) => r.json()),
+        fetch(`${API_URL}/logs/stats/top-endpoints`).then((r) => r.json()),
+      ]);
 
-    fetch(`${API_URL}/logs/recent`)
-      .then((res) => res.json())
-      .then(setLogs);
-
-    fetch(`${API_URL}/logs/stats/top-endpoints`)
-      .then((res) => res.json())
-      .then(setTopEndpoints);
+      setSummary(s);
+      setLogs(l);
+      setTopEndpoints(t);
+      setLastUpdate(new Date().toLocaleTimeString());
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
     fetchData();
-
-    const interval = setInterval(fetchData, 5000); // 🔥 auto refresh
+    const interval = setInterval(fetchData, 5000);
     return () => clearInterval(interval);
   }, []);
 
-  // 🎛️ filtros
   const filteredLogs = logs.filter((log) => {
     return (
       (methodFilter === "ALL" || log.method === methodFilter) &&
@@ -52,7 +56,6 @@ function App() {
   const uniqueEndpoints = [...new Set(logs.map((l) => l.endpoint))];
   const uniqueMethods = [...new Set(logs.map((l) => l.method))];
 
-  // 📊 gráfico
   const chartData = summary
     ? [
         { name: "Correctos", value: summary.success },
@@ -60,44 +63,47 @@ function App() {
       ]
     : [];
 
+  // 🟡 LOADER
+  if (loading) {
+    return (
+      <div className="h-screen flex items-center justify-center text-xl">
+        ⏳ Cargando dashboard...
+      </div>
+    );
+  }
+
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      <h1 className="text-4xl font-semibold text-center mb-6">
+    <div className="min-h-screen bg-gray-100 text-gray-800 p-6 transition-all">
+      <h1 className="text-4xl font-semibold text-center mb-2">
         📊 Log Dashboard
       </h1>
 
+      {/* 🟢 LIVE */}
+      <div className="text-center mb-6 text-sm text-gray-500">
+        <span className="inline-flex items-center gap-2">
+          <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+          LIVE · última actualización: {lastUpdate}
+        </span>
+      </div>
+
       {/* SUMMARY + CHART */}
       {summary && (
-        <div className="flex gap-6 justify-center mb-8">
+        <div className="flex gap-6 justify-center mb-8 flex-wrap">
           <div className="flex gap-4">
-            <div className="bg-white shadow p-4 rounded text-center w-24">
-              <p>Total</p>
-              <p className="text-xl font-bold">{summary.total}</p>
-            </div>
-            <div className="bg-white shadow p-4 rounded text-center w-24">
-              <p>Errores</p>
-              <p className="text-xl font-bold text-red-500">
-                {summary.errors}
-              </p>
-            </div>
-            <div className="bg-white shadow p-4 rounded text-center w-24">
-              <p>Correctos</p>
-              <p className="text-xl font-bold text-green-600">
-                {summary.success}
-              </p>
-            </div>
+            <Card title="Total" value={summary.total} />
+            <Card title="Errores" value={summary.errors} color="text-red-500" />
+            <Card title="Correctos" value={summary.success} color="text-green-600" />
           </div>
 
-          {/* 📊 PIE CHART */}
-          <div className="bg-white shadow p-4 rounded">
-            <PieChart width={200} height={200}>
+          <div className="bg-white shadow p-4 rounded hover:scale-105 transition">
+            <PieChart width={220} height={220}>
               <Pie
                 data={chartData}
                 dataKey="value"
-                label={({ value }) => value} // 🔥 números visibles SIEMPRE
+                label={({ value }) => value}
               >
-                {chartData.map((_, index) => (
-                  <Cell key={index} fill={COLORS[index]} />
+                {chartData.map((_, i) => (
+                  <Cell key={i} fill={COLORS[i]} />
                 ))}
               </Pie>
               <Tooltip />
@@ -129,9 +135,9 @@ function App() {
             <select
               value={methodFilter}
               onChange={(e) => setMethodFilter(e.target.value)}
-              className="border p-1"
+              className="border p-1 rounded"
             >
-              <option value="ALL">Todos métodos</option>
+              <option value="ALL">Métodos</option>
               {uniqueMethods.map((m) => (
                 <option key={m}>{m}</option>
               ))}
@@ -140,9 +146,9 @@ function App() {
             <select
               value={endpointFilter}
               onChange={(e) => setEndpointFilter(e.target.value)}
-              className="border p-1"
+              className="border p-1 rounded"
             >
-              <option value="ALL">Todos endpoints</option>
+              <option value="ALL">Endpoints</option>
               {uniqueEndpoints.map((e) => (
                 <option key={e}>{e}</option>
               ))}
@@ -161,13 +167,16 @@ function App() {
               </thead>
               <tbody>
                 {filteredLogs.map((log, i) => (
-                  <tr key={i} className="border-b">
+                  <tr
+                    key={i}
+                    className="border-b hover:bg-gray-50 transition"
+                  >
                     <td>{log.endpoint}</td>
                     <td
                       className={
                         log.status_code >= 400
-                          ? "text-red-500"
-                          : "text-green-600"
+                          ? "text-red-500 font-semibold"
+                          : "text-green-600 font-semibold"
                       }
                     >
                       {log.status_code}
@@ -180,6 +189,16 @@ function App() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// 🔹 COMPONENTE CARD
+function Card({ title, value, color = "" }) {
+  return (
+    <div className="bg-white shadow p-4 rounded text-center w-28 hover:scale-105 transition">
+      <p>{title}</p>
+      <p className={`text-xl font-bold ${color}`}>{value}</p>
     </div>
   );
 }
