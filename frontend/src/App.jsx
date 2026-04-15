@@ -17,23 +17,11 @@ const WS_URL = "wss://log-pipeline.onrender.com/ws";
 function App() {
   const [summary, setSummary] = useState(null);
   const [logs, setLogs] = useState([]);
-  const [alerts, setAlerts] = useState([]);
   const [lastUpdate, setLastUpdate] = useState(null);
+  const [wsConnected, setWsConnected] = useState(false);
 
-  const MAX_ALERTS = 3;
-
-  const addAlert = (message) => {
-    const id = Date.now();
-
-    setAlerts((prev) => [{ id, message }, ...prev].slice(0, MAX_ALERTS));
-
-    setTimeout(() => {
-      setAlerts((prev) => prev.filter((a) => a.id !== id));
-    }, 4000);
-  };
-
-  // 🔥 FETCH INICIAL
-  const fetchInitialData = async () => {
+  // 🔥 FETCH (fallback)
+  const fetchData = async () => {
     try {
       const [summaryRes, logsRes] = await Promise.all([
         fetch(`${API_URL}/logs/stats/summary`),
@@ -47,58 +35,73 @@ function App() {
       setLogs(logsData);
       setLastUpdate(new Date());
     } catch (err) {
-      console.error("ERROR INIT:", err);
+      console.error("FETCH ERROR:", err);
     }
   };
 
   useEffect(() => {
-    fetchInitialData();
+    fetchData();
 
-    // 🔥 WEBSOCKET REAL
-    const ws = new WebSocket(WS_URL);
+    let ws;
 
-    ws.onopen = () => {
-      console.log("🟢 WS conectado");
-    };
+    try {
+      ws = new WebSocket(WS_URL);
 
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
+      ws.onopen = () => {
+        console.log("🟢 WS conectado");
+        setWsConnected(true);
+      };
 
-      if (msg.type === "new_log") {
-        const log = msg.data;
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
 
-        setLogs((prev) => [log, ...prev.slice(0, 49)]);
+        if (msg.type === "new_log") {
+          const log = msg.data;
 
-        setSummary((prev) => {
-          if (!prev) return prev;
+          setLogs((prev) => [log, ...prev.slice(0, 49)]);
 
-          const isError = log.status_code >= 400;
+          setSummary((prev) => {
+            if (!prev) return prev;
 
-          return {
-            total: prev.total + 1,
-            success: isError ? prev.success : prev.success + 1,
-            errors: isError ? prev.errors + 1 : prev.errors,
-          };
-        });
+            const isError = log.status_code >= 400;
 
-        if (log.status_code >= 400) {
-          addAlert(`🚨 Error ${log.status_code} en ${log.endpoint}`);
+            return {
+              total: prev.total + 1,
+              success: isError ? prev.success : prev.success + 1,
+              errors: isError ? prev.errors + 1 : prev.errors,
+            };
+          });
+
+          setLastUpdate(new Date());
         }
+      };
 
-        setLastUpdate(new Date());
+      ws.onerror = () => {
+        console.log("⚠️ WS error → fallback polling");
+        setWsConnected(false);
+      };
+
+      ws.onclose = () => {
+        console.log("🔴 WS cerrado → fallback polling");
+        setWsConnected(false);
+      };
+    } catch (e) {
+      console.log("WS no disponible");
+      setWsConnected(false);
+    }
+
+    // 🔥 FALLBACK polling si WS falla
+    const interval = setInterval(() => {
+      if (!wsConnected) {
+        fetchData();
       }
-    };
+    }, 5000);
 
-    ws.onerror = (e) => {
-      console.error("WS ERROR", e);
+    return () => {
+      if (ws) ws.close();
+      clearInterval(interval);
     };
-
-    ws.onclose = () => {
-      console.log("🔴 WS cerrado");
-    };
-
-    return () => ws.close();
-  }, []);
+  }, [wsConnected]);
 
   if (!summary) return <div className="p-6">Cargando...</div>;
 
@@ -120,21 +123,10 @@ function App() {
         📊 Log Dashboard
       </h1>
 
-      {/* ALERTAS */}
-      <div className="space-y-2 mb-4">
-        {alerts.map((a) => (
-          <div
-            key={a.id}
-            className="bg-red-600 text-white p-3 rounded shadow animate-pulse"
-          >
-            {a.message}
-          </div>
-        ))}
-      </div>
-
-      {/* LIVE */}
-      <div className="text-center text-sm text-gray-500 mb-6">
-        🟢 LIVE · {lastUpdate?.toLocaleTimeString()}
+      <div className="text-center text-sm mb-6">
+        {wsConnected ? "🟢 LIVE (WebSocket)" : "🟡 Polling mode"}
+        {" · "}
+        {lastUpdate?.toLocaleTimeString()}
       </div>
 
       {/* SUMMARY */}
@@ -167,7 +159,7 @@ function App() {
       </div>
 
       {/* GRÁFICOS */}
-      <div className="grid grid-cols-4 gap-6 mb-6">
+      <div className="grid grid-cols-4 gap-6">
 
         <div className="col-span-3 bg-white shadow rounded p-4">
           <ResponsiveContainer width="100%" height={250}>
@@ -190,7 +182,6 @@ function App() {
           </PieChart>
         </div>
       </div>
-
     </div>
   );
 }
