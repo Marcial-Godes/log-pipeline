@@ -23,32 +23,28 @@ function App() {
 
   const [lastUpdate, setLastUpdate] = useState(null);
 
-  // 🔄 FETCH DATA
   const fetchData = () => {
     fetch(`${API_URL}/logs/stats/summary`)
       .then((res) => res.json())
-      .then((data) => setSummary(data));
+      .then(setSummary);
 
     fetch(`${API_URL}/logs/recent`)
       .then((res) => res.json())
-      .then((data) => setLogs(data));
+      .then(setLogs);
 
     fetch(`${API_URL}/logs/stats/top-endpoints`)
       .then((res) => res.json())
-      .then((data) => setTopEndpoints(data));
+      .then(setTopEndpoints);
 
     setLastUpdate(new Date());
   };
 
-  // 🚀 INIT + AUTO REFRESH (LIVE)
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 5000); // cada 5s
-
+    const interval = setInterval(fetchData, 5000);
     return () => clearInterval(interval);
   }, []);
 
-  // 📊 PIE DATA
   const pieData = summary
     ? [
         { name: "Correctos", value: summary.success },
@@ -56,14 +52,12 @@ function App() {
       ]
     : [];
 
-  // 📈 ACTIVIDAD (últimos logs)
   const activityData = logs.slice(0, 20).map((log, i) => ({
     name: i,
     success: log.status_code < 400 ? 1 : 0,
     error: log.status_code >= 400 ? 1 : 0,
   }));
 
-  // 🔍 FILTROS
   const filteredLogs = logs.filter((log) => {
     return (
       log.endpoint.toLowerCase().includes(search.toLowerCase()) &&
@@ -76,14 +70,25 @@ function App() {
     <div className="p-6 max-w-7xl mx-auto">
 
       {/* HEADER */}
-      <h1 className="text-4xl font-semibold text-center mb-2">
+      <h1 className="text-4xl font-semibold text-center mb-1">
         📊 Log Dashboard
       </h1>
 
-      <p className="text-center text-gray-500 mb-6">
-        🟢 LIVE · última actualización:{" "}
-        {lastUpdate ? lastUpdate.toLocaleTimeString() : "--:--:--"}
-      </p>
+      {/* 🔥 LIVE INDICATOR PRO */}
+      <div className="flex justify-center items-center gap-2 text-sm text-gray-500 mb-6">
+        <span className="relative flex h-3 w-3">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+          <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+        </span>
+
+        <span className="font-medium text-green-600">LIVE</span>
+
+        <span>· última actualización:</span>
+
+        <span className="font-mono">
+          {lastUpdate ? lastUpdate.toLocaleTimeString() : "--:--:--"}
+        </span>
+      </div>
 
       {/* SUMMARY */}
       {summary && (
@@ -119,11 +124,9 @@ function App() {
 
       {/* GRÁFICOS */}
       <div className="grid grid-cols-4 gap-6 mb-6">
-
-        {/* ACTIVIDAD */}
         <div className="col-span-3 bg-white shadow rounded p-4">
           <h2 className="font-semibold mb-2">
-            📈 Actividad en tiempo real
+            📈 Actividad
           </h2>
 
           <ResponsiveContainer width="100%" height={250}>
@@ -131,21 +134,12 @@ function App() {
               <XAxis dataKey="name" />
               <YAxis />
               <Tooltip />
-              <Line
-                type="monotone"
-                dataKey="success"
-                stroke="#16a34a"
-              />
-              <Line
-                type="monotone"
-                dataKey="error"
-                stroke="#dc2626"
-              />
+              <Line type="monotone" dataKey="success" stroke="#16a34a" />
+              <Line type="monotone" dataKey="error" stroke="#dc2626" />
             </LineChart>
           </ResponsiveContainer>
         </div>
 
-        {/* PIE */}
         <div className="col-span-1 bg-white shadow rounded p-4 flex items-center justify-center">
           <div className="relative">
             <PieChart width={220} height={220}>
@@ -160,15 +154,20 @@ function App() {
               </Pie>
             </PieChart>
 
-            {/* CENTER DATA */}
             {summary && (
               <div className="absolute inset-0 flex flex-col items-center justify-center text-sm">
-                <span className="text-green-600 font-bold">
-                  ✔ {summary.success}
+                <span className="text-gray-400">Logs</span>
+                <span className="text-xl font-bold">
+                  {summary.total}
                 </span>
-                <span className="text-red-500 font-bold">
-                  ✖ {summary.errors}
-                </span>
+                <div className="flex gap-2 mt-1">
+                  <span className="text-green-600 text-xs">
+                    {summary.success}
+                  </span>
+                  <span className="text-red-500 text-xs">
+                    {summary.errors}
+                  </span>
+                </div>
               </div>
             )}
           </div>
@@ -218,55 +217,39 @@ function App() {
         </button>
       </div>
 
-      {/* CONTENIDO */}
-      <div className="grid grid-cols-4 gap-6">
+      {/* TABLA */}
+      <div className="bg-white shadow rounded p-4 overflow-auto max-h-[400px]">
+        <h2 className="font-semibold mb-2">
+          Logs ({filteredLogs.length})
+        </h2>
 
-        {/* TOP ENDPOINTS */}
-        <div className="col-span-1 bg-white shadow rounded p-4">
-          <h2 className="font-semibold mb-2">Top Endpoints</h2>
-          <ul className="space-y-1">
-            {topEndpoints.map((item, i) => (
-              <li key={i}>
-                {item.endpoint} → {item.count}
-              </li>
-            ))}
-          </ul>
-        </div>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left border-b">
+              <th>Endpoint</th>
+              <th>Status</th>
+              <th>Método</th>
+            </tr>
+          </thead>
 
-        {/* LOGS */}
-        <div className="col-span-3 bg-white shadow rounded p-4 overflow-auto max-h-[400px]">
-          <h2 className="font-semibold mb-2">
-            Logs ({filteredLogs.length})
-          </h2>
-
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left border-b">
-                <th>Endpoint</th>
-                <th>Status</th>
-                <th>Método</th>
+          <tbody>
+            {filteredLogs.map((log, i) => (
+              <tr key={i} className="border-b">
+                <td>{log.endpoint}</td>
+                <td
+                  className={
+                    log.status_code >= 400
+                      ? "text-red-500"
+                      : "text-green-600"
+                  }
+                >
+                  {log.status_code}
+                </td>
+                <td>{log.method}</td>
               </tr>
-            </thead>
-
-            <tbody>
-              {filteredLogs.map((log, i) => (
-                <tr key={i} className="border-b">
-                  <td>{log.endpoint}</td>
-                  <td
-                    className={
-                      log.status_code >= 400
-                        ? "text-red-500"
-                        : "text-green-600"
-                    }
-                  >
-                    {log.status_code}
-                  </td>
-                  <td>{log.method}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
