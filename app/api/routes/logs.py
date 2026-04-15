@@ -4,8 +4,8 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.log import Log
 
-# 🔥 IMPORTANTE
-from app.main import manager
+# 🔥 FIX IMPORT (SIN CIRCULAR)
+from app.websocket.manager import manager
 
 router = APIRouter(prefix="/logs", tags=["logs"])
 
