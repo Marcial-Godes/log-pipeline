@@ -25,7 +25,7 @@ function App() {
   const [lastUpdate, setLastUpdate] = useState(null);
 
   // =========================
-  // FETCH
+  // FETCH DATA
   // =========================
   const fetchData = async () => {
     try {
@@ -34,8 +34,14 @@ function App() {
         fetch(`${API_URL}/logs/recent`),
       ]);
 
-      setSummary(await summaryRes.json());
-      setLogs(await logsRes.json());
+      const summaryData = await summaryRes.json();
+      const logsData = await logsRes.json();
+
+      setSummary(summaryData);
+      setLogs(logsData);
+
+      // 🔥 IMPORTANTE: trigger de alertas
+      await fetch(`${API_URL}/logs/stats/realtime-check`);
 
       setLastUpdate(new Date());
     } catch (error) {
@@ -44,7 +50,7 @@ function App() {
   };
 
   // =========================
-  // WEBSOCKET 🔥
+  // WEBSOCKET
   // =========================
   useEffect(() => {
     const ws = new WebSocket("wss://log-pipeline.onrender.com/ws");
@@ -103,11 +109,11 @@ function App() {
         📊 Log Dashboard
       </h1>
 
-      {/* ALERTAS 🔥 */}
+      {/* ALERTAS */}
       <div className="space-y-2 mb-4">
         {alerts.map((a) => (
           <div key={a.id} className="bg-red-500 text-white p-2 rounded shadow">
-            🚨 Error detectado: {a.message}
+            🚨 {a.message}
           </div>
         ))}
       </div>
