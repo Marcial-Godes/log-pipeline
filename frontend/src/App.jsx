@@ -22,6 +22,24 @@ function App() {
   const [lastUpdate, setLastUpdate] = useState(null);
 
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [methodFilter, setMethodFilter] = useState("");
+
+  const MAX_ALERTS = 3;
+
+  const addAlert = (message) => {
+    const id = Date.now();
+
+    setAlerts((prev) => {
+      const updated = [{ id, message }, ...prev].slice(0, MAX_ALERTS);
+      return updated;
+    });
+
+    // 🔥 auto eliminar después de 4s
+    setTimeout(() => {
+      setAlerts((prev) => prev.filter((a) => a.id !== id));
+    }, 4000);
+  };
 
   const fetchData = async () => {
     try {
@@ -34,24 +52,16 @@ function App() {
       const logsData = await logsRes.json();
 
       setSummary(summaryData);
-      setLogs(logsData);
+      setLogs(Array.isArray(logsData) ? logsData : []);
 
-      // 🔥 ALERTAS ROBUSTAS
+      // 🔥 ALERTAS INTELIGENTES
       if (lastErrors !== null && summaryData.errors > lastErrors) {
         const diff = summaryData.errors - lastErrors;
-
-        setAlerts((prev) => [
-          {
-            id: Date.now(),
-            message: `🚨 ${diff} nuevos errores`,
-          },
-          ...prev,
-        ]);
+        addAlert(`🚨 +${diff} errores detectados`);
       }
 
       setLastErrors(summaryData.errors);
       setLastUpdate(new Date());
-
     } catch (error) {
       console.error("ERROR:", error);
     }
@@ -59,7 +69,7 @@ function App() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 2000); // más reactivo
+    const interval = setInterval(fetchData, 2000);
     return () => clearInterval(interval);
   }, [lastErrors]);
 
@@ -76,16 +86,23 @@ function App() {
     error: log.status_code >= 400 ? 1 : 0,
   }));
 
-  const filteredLogs = logs.filter((log) =>
-    (log.endpoint || "").toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredLogs = logs.filter((log) => {
+    return (
+      (log.endpoint || "").toLowerCase().includes(search.toLowerCase()) &&
+      (statusFilter ? log.status_code.toString() === statusFilter : true) &&
+      (methodFilter ? log.method === methodFilter : true)
+    );
+  });
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
 
-      <h1 className="text-4xl text-center mb-2">📊 Log Dashboard</h1>
+      {/* HEADER */}
+      <h1 className="text-4xl text-center mb-2">
+        📊 Log Dashboard
+      </h1>
 
-      {/* 🔥 ALERTAS VISUALES PRO */}
+      {/* 🔥 ALERTAS */}
       <div className="space-y-2 mb-4">
         {alerts.map((a) => (
           <div
@@ -97,6 +114,7 @@ function App() {
         ))}
       </div>
 
+      {/* LIVE */}
       <div className="text-center text-sm text-gray-500 mb-6">
         🟢 LIVE · {lastUpdate?.toLocaleTimeString()}
       </div>
@@ -105,22 +123,26 @@ function App() {
       <div className="grid grid-cols-4 gap-4 mb-6">
         <div className="bg-white shadow p-4 text-center">
           <p>Total</p>
-          <p className="text-xl">{summary.total}</p>
+          <p className="text-xl font-bold">{summary.total}</p>
         </div>
 
         <div className="bg-white shadow p-4 text-center">
           <p>Errores</p>
-          <p className="text-xl text-red-500">{summary.errors}</p>
+          <p className="text-xl font-bold text-red-500">
+            {summary.errors}
+          </p>
         </div>
 
         <div className="bg-white shadow p-4 text-center">
           <p>Correctos</p>
-          <p className="text-xl text-green-600">{summary.success}</p>
+          <p className="text-xl font-bold text-green-600">
+            {summary.success}
+          </p>
         </div>
 
         <div className="bg-white shadow p-4 text-center">
           <p>% Error</p>
-          <p className="text-xl text-orange-500">
+          <p className="text-xl font-bold text-orange-500">
             {((summary.errors / summary.total) * 100).toFixed(1)}%
           </p>
         </div>
@@ -129,7 +151,10 @@ function App() {
       {/* GRÁFICOS */}
       <div className="grid grid-cols-4 gap-6 mb-6">
 
-        <div className="col-span-3 bg-white shadow p-4">
+        {/* LINE */}
+        <div className="col-span-3 bg-white shadow rounded p-4">
+          <h2 className="font-semibold mb-2">📈 Actividad</h2>
+
           <ResponsiveContainer width="100%" height={250}>
             <LineChart data={activityData}>
               <XAxis dataKey="name" />
@@ -141,7 +166,8 @@ function App() {
           </ResponsiveContainer>
         </div>
 
-        <div className="bg-white shadow p-4 flex justify-center items-center">
+        {/* DONUT */}
+        <div className="bg-white shadow rounded p-4 flex justify-center items-center">
           <PieChart width={200} height={200}>
             <Pie data={pieData} dataKey="value" innerRadius={60}>
               <Cell fill="#16a34a" />
@@ -151,28 +177,84 @@ function App() {
         </div>
       </div>
 
-      {/* FILTRO */}
-      <div className="mb-4">
+      {/* FILTROS */}
+      <div className="flex gap-3 mb-4">
         <input
-          className="border p-2"
+          type="text"
           placeholder="Buscar..."
+          className="border p-2 rounded"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
+
+        <select
+          className="border p-2 rounded"
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+        >
+          <option value="">Status</option>
+          <option value="200">200</option>
+          <option value="400">400</option>
+          <option value="500">500</option>
+        </select>
+
+        <select
+          className="border p-2 rounded"
+          value={methodFilter}
+          onChange={(e) => setMethodFilter(e.target.value)}
+        >
+          <option value="">Método</option>
+          <option value="GET">GET</option>
+          <option value="POST">POST</option>
+        </select>
+
+        <button
+          onClick={() => {
+            setSearch("");
+            setStatusFilter("");
+            setMethodFilter("");
+          }}
+          className="bg-black text-white px-4 rounded"
+        >
+          Reset
+        </button>
       </div>
 
       {/* TABLA */}
-      <table className="w-full bg-white shadow">
-        <tbody>
-          {filteredLogs.map((log, i) => (
-            <tr key={i}>
-              <td>{log.endpoint}</td>
-              <td>{log.status_code}</td>
-              <td>{log.method}</td>
+      <div className="bg-white shadow rounded p-4 overflow-auto max-h-[400px]">
+        <h2 className="font-semibold mb-2">
+          Logs ({filteredLogs.length})
+        </h2>
+
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left border-b">
+              <th>Endpoint</th>
+              <th>Status</th>
+              <th>Método</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+
+          <tbody>
+            {filteredLogs.map((log, i) => (
+              <tr key={i} className="border-b">
+                <td>{log.endpoint}</td>
+                <td
+                  className={
+                    log.status_code >= 400
+                      ? "text-red-500"
+                      : "text-green-600"
+                  }
+                >
+                  {log.status_code}
+                </td>
+                <td>{log.method}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
     </div>
   );
 }
