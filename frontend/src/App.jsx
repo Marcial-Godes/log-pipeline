@@ -23,9 +23,9 @@ function App() {
 
   const [lastUpdate, setLastUpdate] = useState(null);
 
-  const [alert, setAlert] = useState(null);
+  // 🔥 ALERTAS PRO
+  const [alerts, setAlerts] = useState([]);
 
-  // 🔥 FETCH PRO (ANTI-CRASH)
   const fetchData = async () => {
     try {
       const [summaryRes, logsRes, topRes] = await Promise.all([
@@ -47,30 +47,42 @@ function App() {
       setTopEndpoints(topData);
       setLastUpdate(new Date());
 
-      // 🔥 ALERTA PRO
+      // 🔥 GENERADOR DE ALERTAS
       const errorRate =
         (summaryData.errors / summaryData.total) * 100;
 
-      if (errorRate > 30) {
-        setAlert({
-          type: "error",
-          message: `🚨 Alto porcentaje de errores (${errorRate.toFixed(
-            1
-          )}%)`,
-        });
+      let newAlert = null;
 
-        // auto-hide
-        setTimeout(() => setAlert(null), 4000);
+      if (errorRate > 50) {
+        newAlert = {
+          id: Date.now(),
+          type: "critical",
+          message: `CRITICAL: ${errorRate.toFixed(1)}% errores`,
+          time: new Date(),
+        };
+      } else if (errorRate > 25) {
+        newAlert = {
+          id: Date.now(),
+          type: "warning",
+          message: `WARNING: ${errorRate.toFixed(1)}% errores`,
+          time: new Date(),
+        };
+      }
+
+      if (newAlert) {
+        setAlerts((prev) => [newAlert, ...prev].slice(0, 5));
       }
     } catch (error) {
       console.error("ERROR FETCH:", error);
 
-      setAlert({
-        type: "error",
-        message: "⚠️ No se pudo conectar con el servidor",
-      });
+      const errorAlert = {
+        id: Date.now(),
+        type: "critical",
+        message: "Servidor no disponible",
+        time: new Date(),
+      };
 
-      setTimeout(() => setAlert(null), 4000);
+      setAlerts((prev) => [errorAlert, ...prev].slice(0, 5));
     }
   };
 
@@ -123,10 +135,32 @@ function App() {
         </span>
       </div>
 
-      {/* 🔥 ALERT */}
-      {alert && (
-        <div className="mb-4 p-3 rounded bg-red-100 text-red-700 text-center font-medium">
-          {alert.message}
+      {/* 🔥 ALERTAS PANEL */}
+      {alerts.length > 0 && (
+        <div className="mb-6 space-y-2">
+          {alerts.map((a) => (
+            <div
+              key={a.id}
+              onClick={() => setStatusFilter("400")}
+              className={`p-3 rounded cursor-pointer text-sm flex justify-between ${
+                a.type === "critical"
+                  ? "bg-red-100 text-red-700"
+                  : "bg-yellow-100 text-yellow-700"
+              }`}
+            >
+              <span>{a.message}</span>
+              <span className="text-xs">
+                {a.time.toLocaleTimeString()}
+              </span>
+            </div>
+          ))}
+
+          <button
+            onClick={() => setAlerts([])}
+            className="text-xs text-gray-500 underline"
+          >
+            Limpiar alertas
+          </button>
         </div>
       )}
 
